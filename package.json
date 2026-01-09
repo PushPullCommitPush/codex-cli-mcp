@@ -1,0 +1,14 @@
+{
+  "name": "codex-mcp",
+  "version": "1.0.0",
+  "description": "MCP server wrapping Codex CLI for local execution",
+  "main": "index.js",
+  "bin": {
+    "codex-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": ["mcp", "codex", "cli"],
+  "license": "MIT"
+}
