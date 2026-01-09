@@ -51,6 +51,14 @@ Default workdir is `~/codex-work`. All filesystem tools are sandboxed to this di
 
 ---
 
+## Tools (summary)
+- `codex_run` — prompt + optional `profile`, `model`, `timeout`, `fresh` (start a new session instead of auto-resume).
+- `codex_resume` — resume last session with optional `profile`.
+- `codex_profiles` — list current profiles and source (OpenWebUI or fallback).
+- `fs_read` / `fs_write` / `fs_list` — operate only inside `workdir`.
+
+---
+
 ## MCP Tools
 
 ### `codex_run`
@@ -62,13 +70,14 @@ Execute a prompt through Codex.
 | `profile` | no | Profile name (see below) |
 | `model` | no | Override the profile's default model |
 | `timeout` | no | Seconds before kill (default: 300) |
+| `fresh` | no | true to force a brand-new session instead of auto-resume |
 
 ### `codex_resume`
 Continue the last Codex session with a follow-up message.
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `message` | yes | Follow-up prompt |
+| `prompt` | yes | Follow-up prompt |
 | `profile` | no | Must match the original session's profile |
 
 ### `codex_profiles`
@@ -115,6 +124,8 @@ All other profiles run with `--dangerously-bypass-approvals-and-sandbox` (requir
 ---
 
 ## Notes
-
 - Config files (`config.toml`, `profiles/security/config.toml`) are regenerated on each run. Don't edit them manually.
 - Timeout kills the Codex process; stderr/stdout are captured and returned.
+- Paths are sandboxed to the configured workdir; traversal outside is rejected.
+- Configure `OPENWEBUI_DB` to point elsewhere if your DB lives in another path.
+- `codex_run` auto-attempts `resume --last` per profile; set `fresh=true` to force a new session.

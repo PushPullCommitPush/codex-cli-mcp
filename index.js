@@ -69,7 +69,8 @@ const TOOLS = {
           description: 'Profile to use (dynamically loaded from OpenWebUI). Legacy aliases: fast, heavy, reasoning, coder, security/kimi. Omit for default.'
         },
         model: { type: 'string', description: 'Model override (optional, ignores profile)' },
-        timeout: { type: 'number', description: 'Timeout in seconds (default: 300)' }
+        timeout: { type: 'number', description: 'Timeout in seconds (default: 300)' },
+        fresh: { type: 'boolean', description: 'Set true to start a new session instead of auto-resume' }
       },
       required: ['prompt']
     }
@@ -330,7 +331,35 @@ function resolveProfile(profiles, requestedProfile, defaultProfile) {
   return { id: normalized, info: profiles[normalized], isSecurity: normalized === 'security' };
 }
 
-async function runCodex(prompt, profile, model, timeout) {
+function spawnCodex(cmdArgs, env, timeoutSeconds) {
+  return new Promise((resolve) => {
+    const proc = spawn(CODEX_PATH, cmdArgs, {
+      cwd: WORKDIR,
+      timeout: (timeoutSeconds || 300) * 1000,
+      env
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    
+    proc.on('close', (code) => {
+      resolve({
+        code,
+        stdout: trimOutput(stdout),
+        stderr: trimOutput(stderr, 5000)
+      });
+    });
+    
+    proc.on('error', (err) => {
+      resolve({ code: 1, stdout: '', stderr: err.message });
+    });
+  });
+}
+
+async function runCodex(prompt, profile, model, timeout, fresh) {
   const { profiles, defaultProfile } = await loadProfilesAndSyncConfigs();
   const { id: profileId, info, isSecurity } = resolveProfile(profiles, profile, defaultProfile);
 
@@ -364,33 +393,19 @@ async function runCodex(prompt, profile, model, timeout) {
   cmdArgs.push(prompt);
 
   const env = buildEnvForProfile(profileId, isSecurity);
+  // Attempt resume first (unless caller requested fresh)
+  if (!fresh) {
+    const resumeArgs = [...globalArgs, 'exec', 'resume', '--last', prompt];
+    const resumeRes = await spawnCodex(resumeArgs, env, timeout);
+    if (resumeRes.code === 0) {
+      resumeRes.stdout = (profileId ? `[profile: ${profileId}] \n` : '[profile: default] \n') + resumeRes.stdout;
+      return resumeRes;
+    }
+  }
 
-  return new Promise((resolve) => {
-    const proc = spawn(CODEX_PATH, cmdArgs, {
-      cwd: WORKDIR,
-      timeout: (timeout || 300) * 1000,
-      env
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    proc.stdout.on('data', (d) => { stdout += d.toString(); });
-    proc.stderr.on('data', (d) => { stderr += d.toString(); });
-    
-    proc.on('close', (code) => {
-      const profileInfo = profileId ? `[profile: ${profileId}] ` : '[profile: default] ';
-      resolve({
-        code,
-        stdout: profileInfo + '\n' + trimOutput(stdout),
-        stderr: trimOutput(stderr, 5000)
-      });
-    });
-    
-    proc.on('error', (err) => {
-      resolve({ code: 1, stdout: '', stderr: err.message });
-    });
-  });
+  const res = await spawnCodex(cmdArgs, env, timeout);
+  res.stdout = (profileId ? `[profile: ${profileId}] \n` : '[profile: default] \n') + res.stdout;
+  return res;
 }
 
 async function resumeCodex(prompt, profile) {
@@ -447,7 +462,7 @@ async function resumeCodex(prompt, profile) {
 async function handleToolCall(name, args) {
   switch (name) {
     case 'codex_run': {
-      const result = await runCodex(args.prompt, args.profile, args.model, args.timeout);
+      const result = await runCodex(args.prompt, args.profile, args.model, args.timeout, args.fresh);
       const combined = (result.stdout || '') + (result.stderr ? `\n\nstderr:\n${result.stderr}` : '');
       return { content: [{ type: 'text', text: combined.trim() || '(no output)' }] };
     }
